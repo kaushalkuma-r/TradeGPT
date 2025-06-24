@@ -1,0 +1,7 @@
+# Ignore .env file
+.env
+__pycache__/
+*.pyc
+.DS_Store
+venv/
+.idea/ 

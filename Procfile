@@ -1,0 +1,1 @@
+web: uvicorn trading_chatbot.backend.main:app --host=0.0.0.0 --port=${PORT:-5000} 
