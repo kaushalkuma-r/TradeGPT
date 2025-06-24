@@ -1,2 +1,10 @@
 streamlit
 requests 
+fastapi
+uvicorn
+requests
+langchain
+matplotlib
+python-dotenv 
+plotly
+langchain-community
