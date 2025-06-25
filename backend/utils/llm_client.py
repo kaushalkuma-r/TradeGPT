@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = "deepseek/deepseek-chat-v3-0324:free" 
+OPENROUTER_MODEL = "deepseek/deepseek-chat-v3-0324:free" #mistralai/devstral-small:free
 
 def call_openrouter(prompt):
     response = requests.post(
