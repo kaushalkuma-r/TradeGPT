@@ -1,83 +1,103 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-# from utils.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
-from utils.memory import memory
-from utils.charts import generate_plotly_charts
-from utils.parsing import extract_sector_summary, parse_strategies, build_response_summary
-from utils.llm_client import call_openrouter
+
+from utils.memory  import memory
+from utils.charts  import generate_plotly_charts
+from utils.parsing import (
+    extract_sector_summary,
+    parse_strategies,
+    build_response_summary,
+)
+from utils.llm_client   import call_openrouter,detect_intent      
+from utils.prompts      import view_follow_up_prompt, strategy_prompt
 
 app = FastAPI()
+
+STATE_FLAG = "awaiting_strategy_confirmation"   # key in memory
+LAST_VIEW  = "last_view"                        # key in memory
 
 class ChatMessage(BaseModel):
     message: str
 
+# ─────────────────────────────────────────────────────────────────────────
 @app.post("/chat")
 async def chat(chat_message: ChatMessage):
-    context = memory.load_memory_variables({})
-    combined_prompt = f"{context['history']}\nUser: {chat_message.message}"
+    user_text = chat_message.message.strip()
+    mem       = memory.load_memory_variables({})
 
-    prompt = f"""
-You are a highly knowledgeable trading assistant. A user has a market view or belief as follows:
-"{chat_message.message}"
+    # ------------------------------------------------------------------ #
+    # 1) If the bot previously asked “Do you want strategies?” …
+    # ------------------------------------------------------------------ #
+    if mem.get(STATE_FLAG):
+        intent = detect_intent(user_text)
+        if intent == "VIEW_WITH_STRATEGY":             # user said yes or asked for strategies
+            prompt = strategy_prompt(mem[LAST_VIEW])
+            raw    = call_openrouter(prompt)
 
-Your response should be structured in two sections:
+            sector_summary = extract_sector_summary(raw)
+            strategies     = parse_strategies(raw)
+            if len(strategies) < 3:
+                raise HTTPException(500, "LLM returned fewer than 3 strategies.")
 
----
+            summary_md = build_response_summary(strategies)
+            charts     = generate_plotly_charts(strategies)
 
-**1. Sector & View Summary:**  
-Provide two paragraphs summarizing:
-- The relevant sector(s) the user's view pertains to (e.g., telecom, tech, energy).
-- The user's directional view (bullish/bearish/neutral) and reasoning based on the input.
+            # reset flag
+            memory.save_context({}, {STATE_FLAG: False})
 
----
+            return {
+                "sector_view_summary": sector_summary,
+                "response": summary_md,
+                "strategies": strategies,
+                "charts": {k: f.to_dict() for k, f in charts.items()},
+            }
 
-**2. Trading Strategies:**  
-Recommend at least **three unique, well-justified short- to medium-term trading strategies** aligned with the user's view.  
-Each strategy should be:
-- Distinct and non-overlapping
-- Commonly used in real-world trading
-- Actionable (not long-term investing)
+        # user did NOT confirm → continue normal chat
+        normal_reply = call_openrouter(user_text)
+        memory.save_context({"input": user_text}, {"output": normal_reply, STATE_FLAG: False})
+        return {"response": normal_reply, "strategies": [], "charts": {}}
 
-**For each strategy, use the exact structure:**
+    # ------------------------------------------------------------------ #
+    # 2) Fresh message – classify intent
+    # ------------------------------------------------------------------ #
+    intent = detect_intent(user_text)
 
-- Strategy: [Name of the strategy]
-- Explanation: [What it is, how it works, how it connects to the user's view. Include instruments and reasoning.]
-- Popularity: [X]%
-- Average Return: [Y]%
-- Sharpe Ratio: [Z]
-- Win Rate: [W]%
-- Max Drawdown: [D]%
-- Profit Factor: [P]
-- Volatility: [V]%
-- Expectancy: [E]% per trade
-- Trade Frequency: [T] trades/month
+    if intent == "VIEW_WITH_STRATEGY":
+        # user both shares a view and explicitly asks for strategies
+        prompt         = strategy_prompt(user_text)
+        raw            = call_openrouter(prompt)
+        sector_summary = extract_sector_summary(raw)
+        strategies     = parse_strategies(raw)
+        if len(strategies) < 3:
+            raise HTTPException(500, "LLM returned fewer than 3 strategies.")
 
----
+        summary_md = build_response_summary(strategies)
+        charts     = generate_plotly_charts(strategies)
 
-⚠️ Important:
-- Do NOT include fewer than 3 strategies.
-- Each strategy block must begin with 'Strategy:' and end with '---'.
-- Use exact format for each metric. No markdown, bold, or extra commentary.
-- You are being evaluated on strict format adherence.
-
-Only return the 3+ structured strategy blocks. Avoid summaries, disclaimers, or repetition.
-"""
-    try:
-        raw_text = call_openrouter(prompt)
-        sector_summary = extract_sector_summary(raw_text)
-        strategies = parse_strategies(raw_text)
-        response_summary = build_response_summary(strategies)
-        memory.save_context({"input": chat_message.message}, {"output": response_summary})
-        charts = generate_plotly_charts(strategies)
         return {
-            "response": response_summary.strip(),
+            "sector_view_summary": sector_summary,
+            "response": summary_md,
             "strategies": strategies,
-            "charts": {k: fig.to_dict() for k, fig in charts.items()},
-            "sector_view_summary": sector_summary
+            "charts": {k: f.to_dict() for k, f in charts.items()},
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
+    elif intent == "VIEW_NO_STRATEGY":
+        # store view, ask if they want strategies
+        memory.save_context(
+            {"input": user_text},
+            {LAST_VIEW: user_text, STATE_FLAG: True}
+        )
+        follow_up_prompt = view_follow_up_prompt(user_text)
+        bot_reply        = call_openrouter(follow_up_prompt)
+        return {"response": bot_reply, "strategies": [], "charts": {}}
+
+    else:
+        # simple conversation
+        normal_reply = call_openrouter(user_text)
+        memory.save_context({"input": user_text}, {"output": normal_reply})
+        return {"response": normal_reply, "strategies": [], "charts": {}}
+
+# -----------------------------------------------------------------------
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the Trading Chatbot Backend (OpenRouter Modularized)"}
+    return {"message": "Trading Chatbot Backend (Intent-aware)"}

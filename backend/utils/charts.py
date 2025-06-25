@@ -16,7 +16,7 @@ def generate_plotly_charts(strategies):
         "max_drawdown": "Max Drawdown (%)",
         "profit_factor": "Profit Factor",
         "volatility": "Volatility (%)",
-        "risk_reward_ratio": "Risk-Reward Ratio",
+        "expectancy": "Risk-Reward Ratio",
         "trade_frequency": "Trade Frequency (trades/month)"
     }
 

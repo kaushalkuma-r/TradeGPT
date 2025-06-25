@@ -38,7 +38,7 @@ def parse_strategies(raw_text):
             "max_drawdown": extract_value(clean, "Max Drawdown", pct=True),
             "profit_factor": extract_value(clean, "Profit Factor"),
             "volatility": extract_value(clean, "Volatility", pct=True),
-            "risk_reward_ratio": extract_value(clean, "Expectancy"),
+            "expectancy": extract_value(clean, "Expectancy"),
             "trade_frequency": extract_value(clean, "Trade Frequency")
         })
     return strategies
@@ -55,6 +55,6 @@ def build_response_summary(strategies):
         response_summary += f"- **Max Drawdown**: {s['max_drawdown']}%\n"
         response_summary += f"- **Profit Factor**: {s['profit_factor']}\n"
         response_summary += f"- **Volatility**: {s['volatility']}%\n"
-        response_summary += f"- **Expectancy**: {s['risk_reward_ratio']}\n"
+        response_summary += f"- **Expectancy**: {s['expectancy']}\n"
         response_summary += f"- **Trade Frequency**: {s['trade_frequency']} trades/month\n"
     return response_summary 
